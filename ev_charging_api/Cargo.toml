@@ -1,0 +1,32 @@
+[package]
+name = "ev_charging_api"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Webフレームワーク & 非同期ランタイム
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+
+# データベース (PostgreSQL)
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "chrono"] }
+
+# シリアライズ & 日時
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+
+# ロギング & OpenTelemetry (Jaeger連携)
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-opentelemetry = "0.22"
+opentelemetry = { version = "0.21", features = ["trace"] }
+opentelemetry_sdk = { version = "0.21", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.14", features = ["tonic", "tokio"] }
+
+# 環境変数読み込み
+dotenvy = "0.15.7"
+
+[dev-dependencies]
+# 受入テスト用HTTPクライアント
+reqwest = { version = "0.12", features = ["json"] }
