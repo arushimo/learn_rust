@@ -1,163 +1,23 @@
-// 💡 OpenTelemetry 関連の正しいインポート（WithExportConfigを復活させます）
-use chrono::{DateTime, TimeZone, Utc};
-use prost_types::Timestamp;
-use sqlx::{postgres::PgPoolOptions, PgPool};
-use tonic::{transport::Server, Request, Response, Status};
-use tracing::{info, instrument};
+pub mod domain;
+pub mod infrastructure;
+pub mod presentation;
+pub mod usecase;
+
+use infrastructure::postgres_repository::PostgresChargeSessionRepository;
+use presentation::grpc_handler::{
+    charging_v1::charging_service_server::ChargingServiceServer, MyChargingService,
+};
+use usecase::charge_session_usecase::ChargeSessionUsecase;
+
+use sqlx::postgres::PgPoolOptions;
+use std::sync::Arc;
+use tonic::transport::Server;
+use tracing::info;
 
 use opentelemetry::trace::TracerProvider as _;
-use opentelemetry_otlp::WithExportConfig; // 👈 with_endpoint を使うために必須
+use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::trace::{Config, Tracer};
 
-// ==========================================
-// 1. 自動生成された gRPC コードの取り込み
-// ==========================================
-// protoのパッケージ名「charging.v1」に対応するモジュールを定義
-pub mod charging_v1 {
-    // build.rs が生成したコードをこの場所（インライン）に展開するマクロ
-    tonic::include_proto!("charging.v1");
-}
-
-// 扱いやすいように自動生成されたサービスや構造体をインポート
-use charging_v1::charging_service_server::{ChargingService, ChargingServiceServer};
-use charging_v1::{ChargeSession, CreateChargeSessionRequest, GetChargeSessionRequest};
-
-// ==========================================
-// 2. ドメインモデリング (第16回：Newtypeパターン)
-// ==========================================
-#[derive(Debug, Clone)]
-pub struct Kwh(i32);
-
-impl TryFrom<i32> for Kwh {
-    type Error = &'static str;
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        if value > 0 && value <= 150 {
-            Ok(Kwh(value))
-        } else {
-            Err("無効な充電量です。1〜150kWhの間で指定してください。")
-        }
-    }
-}
-
-// ==========================================
-// 3. サービスの実装（ハンドラ構造体）
-// ==========================================
-// 💡 AxumのStateの代わりに、構造体のフィールドにDBプール（DI）を持たせます
-pub struct MyChargingService {
-    db: PgPool,
-}
-
-// Tonicが要求するトレイト（インターフェース）を構造体に実装する
-#[tonic::async_trait]
-impl ChargingService for MyChargingService {
-    // 💡 ① セッションの作成 (AIP-133 Create method)
-    #[instrument(skip(self))] // 引数のself(DBプール)を除外してJaegerに計装
-    async fn create_charge_session(
-        &self,
-        request: Request<CreateChargeSessionRequest>,
-    ) -> Result<Response<ChargeSession>, Status> {
-        info!("gRPC: CreateChargeSession リクエストを受信しました");
-
-        // request.into_inner() で、gRPCのガワを剥いて中身の構造体を取り出す
-        let req = request.into_inner();
-        let session = req
-            .charge_session
-            .ok_or_else(|| Status::invalid_argument("charge_session が指定されていません"))?;
-
-        // Newtypeバリデーション (エラー時は gRPC の INVALID_ARGUMENT ステータスを返す)
-        let kwh = Kwh::try_from(session.charged_kwh).map_err(Status::invalid_argument)?;
-
-        // Timestamp -> DateTime<Utc> の変換
-        let start_time_ts = session
-            .start_time
-            .ok_or_else(|| Status::invalid_argument("start_time が指定されていません"))?;
-        let parsed_time = Utc
-            .timestamp_opt(start_time_ts.seconds, start_time_ts.nanos as u32)
-            .single()
-            .ok_or_else(|| Status::invalid_argument("無効な start_time です"))?;
-
-        // SQLxによるDB挿入
-        let record = sqlx::query_as::<_, (i32,)> (
-            "INSERT INTO charging_sessions (vehicle_model, charged_kwh, start_time) VALUES ($1, $2, $3) RETURNING id"
-        )
-        .bind(&session.vehicle_model)
-        .bind(kwh.0)
-        .bind(parsed_time)
-        .fetch_one(&self.db)
-        .await
-        .map_err(|e| {
-            tracing::error!("DBエラー: {:?}", e);
-            Status::internal("Internal Database Error")
-        })?;
-
-        let id = record.0;
-
-        // レスポンスの組み立て
-        let reply = ChargeSession {
-            name: format!("chargeSessions/{}", id),
-            vehicle_model: session.vehicle_model,
-            charged_kwh: kwh.0,
-            start_time: Some(start_time_ts),
-        };
-
-        Ok(Response::new(reply))
-    }
-
-    // 💡 ② セッションの取得 (AIP-131 Get method)
-    #[instrument(skip(self))]
-    async fn get_charge_session(
-        &self,
-        request: Request<GetChargeSessionRequest>,
-    ) -> Result<Response<ChargeSession>, Status> {
-        let req = request.into_inner();
-        info!(
-            "gRPC: GetChargeSession リクエストを受信しました (Name: {})",
-            req.name
-        );
-
-        // Name のパース ("chargeSessions/{id}")
-        let id_str = req.name.strip_prefix("chargeSessions/").ok_or_else(|| {
-            Status::invalid_argument(
-                "無効なリソース名です。'chargeSessions/{id}' の形式で指定してください。",
-            )
-        })?;
-        let id: i32 = id_str.parse().map_err(|_| {
-            Status::invalid_argument("リソース名のID部分は整数である必要があります。")
-        })?;
-
-        let record = sqlx::query_as::<_, (i32, String, i32, DateTime<Utc>)>(
-            "SELECT id, vehicle_model, charged_kwh, start_time FROM charging_sessions WHERE id = $1"
-        )
-        .bind(id)
-        .fetch_optional(&self.db)
-        .await
-        .map_err(|_| Status::internal("Internal Database Error"))?;
-
-        match record {
-            Some((id, model, kwh, time)) => {
-                let ts = Timestamp {
-                    seconds: time.timestamp(),
-                    nanos: time.timestamp_subsec_nanos() as i32,
-                };
-
-                let reply = ChargeSession {
-                    name: format!("chargeSessions/{}", id),
-                    vehicle_model: model,
-                    charged_kwh: kwh,
-                    start_time: Some(ts),
-                };
-                Ok(Response::new(reply))
-            }
-            None => Err(Status::not_found(format!(
-                "リソース {} は見つかりません",
-                req.name
-            ))),
-        }
-    }
-}
-
-// ==========================================
-// 4. OpenTelemetry (Jaeger) とメイン関数
 fn init_tracer() -> Tracer {
     let provider = opentelemetry_otlp::new_pipeline()
         .tracing()
@@ -167,10 +27,9 @@ fn init_tracer() -> Tracer {
                 .with_endpoint("http://jaeger:4317"),
         )
         .with_trace_config(
-            Config::default() // 👈 古い config() ではなく Config::default() を使用
-                .with_resource(opentelemetry_sdk::Resource::new(vec![
-                    opentelemetry::KeyValue::new("service.name", "ev_charging_grpc_api"),
-                ])),
+            Config::default().with_resource(opentelemetry_sdk::Resource::new(vec![
+                opentelemetry::KeyValue::new("service.name", "ev_charging_grpc_api"),
+            ])),
         )
         .install_batch(opentelemetry_sdk::runtime::Tokio)
         .expect("Failed to initialize tracer");
@@ -180,10 +39,8 @@ fn init_tracer() -> Tracer {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // .env ファイルの読み込み
     dotenvy::dotenv().ok();
 
-    // トレース・ログの初期化
     let tracer = init_tracer();
     let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
 
@@ -194,7 +51,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with(telemetry)
         .init();
 
-    // DB接続
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://user:pass@localhost:5432/ev_db".to_string());
 
@@ -204,10 +60,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .expect("DBに接続できませんでした");
 
-    // サービスのインスタンス作成
-    let service = MyChargingService { db: db_pool };
+    let repository = PostgresChargeSessionRepository::new(db_pool);
+    let repository_arc = Arc::new(repository);
 
-    // gRPC サーバーの起動設定
+    let usecase = ChargeSessionUsecase::new(repository_arc);
+    let usecase_arc = Arc::new(usecase);
+
+    let service = MyChargingService::new(usecase_arc);
+
     let addr = "0.0.0.0:50051".parse()?;
     info!("gRPC サーバーをポート 50051 で起動します🚀");
 
