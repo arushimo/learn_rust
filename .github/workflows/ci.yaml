@@ -29,20 +29,50 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      jaeger:
+        image: jaegertracing/all-in-one:latest
+        ports:
+          - 4317:4317 # OTLP gRPC endpoint
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Map jaeger hostname
+        run: echo "127.0.0.1 jaeger" | sudo tee -a /etc/hosts
+
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "ev_charging_api"
+
+      - name: Setup Database Schema
+        env:
+          PGPASSWORD: pass
+        run: |
+          psql -h localhost -U user -d ev_db -c "
+          CREATE TABLE IF NOT EXISTS charging_sessions (
+              id SERIAL PRIMARY KEY,
+              vehicle_model VARCHAR(255) NOT NULL,
+              charged_kwh INTEGER NOT NULL,
+              start_time TIMESTAMPTZ NOT NULL
+          );"
+
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
       - uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Start API Server in background
+        env:
+          DATABASE_URL: postgres://user:pass@localhost:5432/ev_db
+        run: |
+          cargo run &
+          sleep 5
+
       - name: Run tests
         env:
           DATABASE_URL: postgres://user:pass@localhost:5432/ev_db
