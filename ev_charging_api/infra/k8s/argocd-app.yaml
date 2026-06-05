@@ -1,0 +1,20 @@
+# infra/k8s/argocd-app.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ev-charging-api-dev
+  namespace: argocd
+spec:
+  project: default
+  source:
+    # 💡 あなたのGitHubリポジトリのURLに置き換えてください
+    repoURL: 'https://github.com/Akito-Kawamura/learn_rust.git'
+    targetRevision: main
+    path: ev_charging_api/infra/k8s/overlays/dev # 💡 Kustomizeがあるディレクトリパス
+  destination:
+    server: 'https://kubernetes.default.svc' # Minikube自身にデプロイ
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true     # Gitから削除されたリソースをk8s上からも自動消去
+      selfHeal: true  # 誰かが手動でk8sを汚したら、自動でGitの状態に巻き戻す
