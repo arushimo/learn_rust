@@ -21,7 +21,7 @@ async fn test_create_and_fetch_session() {
         .expect("POSTリクエストに失敗しました");
 
     assert_eq!(post_resp.status(), 201);
-    
+
     // レスポンスから自動採番されたIDを取得
     let created_session: serde_json::Value = post_resp.json().await.unwrap();
     let session_id = created_session["id"].as_i64().unwrap();
@@ -34,7 +34,7 @@ async fn test_create_and_fetch_session() {
         .expect("GETリクエストに失敗しました");
 
     assert_eq!(get_resp.status(), 200);
-    
+
     let fetched_session: serde_json::Value = get_resp.json().await.unwrap();
     assert_eq!(fetched_session["vehicle_model"], "Tesla Model Y");
     assert_eq!(fetched_session["charged_kwh"], 65);

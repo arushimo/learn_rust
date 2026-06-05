@@ -49,7 +49,6 @@ pub struct MyChargingService {
 // Tonicが要求するトレイト（インターフェース）を構造体に実装する
 #[tonic::async_trait]
 impl ChargingService for MyChargingService {
-
     // 💡 ① セッションの作成 (POSTの代わり)
     #[instrument(skip(self))] // 引数のself(DBプール)を除外してJaegerに計装
     async fn create_session(
@@ -57,17 +56,18 @@ impl ChargingService for MyChargingService {
         request: Request<ChargeSessionRequest>,
     ) -> Result<Response<ChargeSessionResponse>, Status> {
         info!("gRPC: CreateSession リクエストを受信しました");
-        
+
         // request.into_inner() で、gRPCのガワを剥いて中身の構造体を取り出す
         let req = request.into_inner();
 
         // Newtypeバリデーション (エラー時は gRPC の INVALID_ARGUMENT ステータスを返す)
-        let kwh = Kwh::try_from(req.charged_kwh)
-            .map_err(|e| Status::invalid_argument(e))?;
+        let kwh = Kwh::try_from(req.charged_kwh).map_err(|e| Status::invalid_argument(e))?;
 
         // 文字列で送られてきた時間を Chrono でパース (第18回：タイムゾーンの明示)
         let parsed_time = DateTime::parse_from_rfc3339(&req.start_time)
-            .map_err(|_| Status::invalid_argument("start_time のフォーマットが不正です（RFC3339を期待）"))?
+            .map_err(|_| {
+                Status::invalid_argument("start_time のフォーマットが不正です（RFC3339を期待）")
+            })?
             .with_timezone(&Utc); // UTCに型をカチッと固定
 
         // SQLxによるDB挿入
@@ -122,7 +122,10 @@ impl ChargingService for MyChargingService {
                 };
                 Ok(Response::new(reply))
             }
-            None => Err(Status::not_found(format!("ID: {} のセッションは見つかりません", req.id))),
+            None => Err(Status::not_found(format!(
+                "ID: {} のセッションは見つかりません",
+                req.id
+            ))),
         }
     }
 }
@@ -157,7 +160,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // トレース・ログの初期化
     let tracer = init_tracer();
     let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
-    
+
     use tracing_subscriber::prelude::*;
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::from_default_env())
@@ -168,8 +171,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // DB接続
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://user:pass@localhost:5432/ev_db".to_string());
-        // 💡 本番環境に特化させる場合の、最も厳格な書き方
-        // .expect("環境変数 DATABASE_URL が設定されていません。起動を中止します。");
+    // 💡 本番環境に特化させる場合の、最も厳格な書き方
+    // .expect("環境変数 DATABASE_URL が設定されていません。起動を中止します。");
     let db_pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)
