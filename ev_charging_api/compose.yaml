@@ -4,7 +4,7 @@ services:
   api:
     build: .
     ports:
-      - "3000:3000"
+      - "50051:50051"
     environment:
       - DATABASE_URL=postgres://user:pass@db:5432/ev_db
       - RUST_LOG=info

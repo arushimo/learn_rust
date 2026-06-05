@@ -1,6 +1,9 @@
 # ビルド環境
 FROM rust:latest as builder
 WORKDIR /app
+
+RUN apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/apt/lists/*
+
 COPY . .
 # 依存関係のキャッシュを活用しつつビルド
 RUN cargo build --release
