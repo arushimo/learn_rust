@@ -1,26 +1,49 @@
 syntax = "proto3";
-package charging;
+package charging.v1;
 
-// 💡 サービス（API）の定義
+import "google/protobuf/timestamp.proto";
+
+// The charging service for managing EV charging sessions.
 service ChargingService {
-  rpc CreateSession (ChargeSessionRequest) returns (ChargeSessionResponse);
-  rpc GetSession (GetSessionRequest) returns (ChargeSessionResponse);
+  // Creates a new charge session.
+  rpc CreateChargeSession (CreateChargeSessionRequest) returns (ChargeSession);
+
+  // Gets an existing charge session.
+  rpc GetChargeSession (GetChargeSessionRequest) returns (ChargeSession);
 }
 
-// 💡 リクエストとレスポンスのデータ構造
-message ChargeSessionRequest {
-  string vehicle_model = 1;
-  int32 charged_kwh = 2;
-  string start_time = 3; // RFC3339形式の文字列
-}
+// A resource representing an EV charging session.
+message ChargeSession {
+  // The resource name of the charge session.
+  // Format: chargeSessions/{charge_session}
+  string name = 1;
 
-message GetSessionRequest {
-  int32 id = 1;
-}
-
-message ChargeSessionResponse {
-  int32 id = 1;
+  // The model of the vehicle being charged.
   string vehicle_model = 2;
+
+  // The amount of energy charged, in kWh.
   int32 charged_kwh = 3;
-  string start_time = 4;
+
+  // The time the charging session started.
+  google.protobuf.Timestamp start_time = 4;
+}
+
+// Request message for CreateChargeSession.
+message CreateChargeSessionRequest {
+  // The parent resource name where the charge session is to be created.
+  // Format: "" for top-level.
+  string parent = 1;
+
+  // The charge session ID to use for this charge session. (optional)
+  string charge_session_id = 2;
+
+  // The charge session resource to create.
+  ChargeSession charge_session = 3;
+}
+
+// Request message for GetChargeSession.
+message GetChargeSessionRequest {
+  // The resource name of the charge session to retrieve.
+  // Format: chargeSessions/{charge_session}
+  string name = 1;
 }
