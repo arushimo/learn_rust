@@ -61,7 +61,7 @@ impl ChargingService for MyChargingService {
         let req = request.into_inner();
 
         // Newtypeバリデーション (エラー時は gRPC の INVALID_ARGUMENT ステータスを返す)
-        let kwh = Kwh::try_from(req.charged_kwh).map_err(|e| Status::invalid_argument(e))?;
+        let kwh = Kwh::try_from(req.charged_kwh).map_err(Status::invalid_argument)?;
 
         // 文字列で送られてきた時間を Chrono でパース (第18回：タイムゾーンの明示)
         let parsed_time = DateTime::parse_from_rfc3339(&req.start_time)
