@@ -1,0 +1,24 @@
+# infra/k8s/overlays/dev/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+# baseのファイルをベースにする
+resources:
+  - ../../base
+  - config.yaml
+  - deps.yaml
+
+# 機密情報（DBのURLなど）はKustomizeの機能で安全にSecretとして生成
+secretGenerator:
+  - name: api-secret
+    literals:
+      # 💡 実際はAWS Secrets Manager等から取得しますが、今回は手動定義
+      - DATABASE_URL=postgres://user:pass@postgres-svc:5432/ev_db
+
+images:
+  - name: ghcr.io/kawamuraakito/ev_charging_api
+    newName: ev_charging_api
+    newTag: dev

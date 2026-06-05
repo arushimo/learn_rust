@@ -1,0 +1,8 @@
+# infra/k8s/overlays/dev/api-config.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-config
+data:
+  # 💡 Jaegerの接続先など、平文で良いものを記載
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger-svc:4317"

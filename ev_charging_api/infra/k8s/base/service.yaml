@@ -1,0 +1,13 @@
+# infra/k8s/base/api-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: ev-charging-api-svc
+spec:
+  selector:
+    app: ev-charging-api
+  ports:
+    - protocol: TCP
+      port: 50051       # Serviceが受け付けるポート
+      targetPort: 50051 # コンテナへ流すポート
+  type: ClusterIP       # クラスター内部のみ公開（外部公開は別途Ingress等を使用）

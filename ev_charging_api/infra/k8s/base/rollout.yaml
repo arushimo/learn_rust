@@ -1,0 +1,49 @@
+# infra/k8s/base/api-rollout.yaml
+apiVersion: argoproj.io/v1alpha1 # 💡 ArgoのAPIバージョンに変更
+kind: Rollout                    # 💡 Deployment から Rollout に変更
+metadata:
+  name: ev-charging-api
+  labels:
+    app: ev-charging-api
+spec:
+  replicas: 5 # 💡 カナリアの割合を分かりやすくするため、一時的に5に増やします
+  selector:
+    matchLabels:
+      app: ev-charging-api
+  template:
+    metadata:
+      labels:
+        app: ev-charging-api
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/kawamuraakito/ev_charging_api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 50051
+              name: grpc
+          envFrom:
+            - configMapRef:
+                name: api-config
+            - secretRef:
+                name: api-secret
+          readinessProbe:
+            tcpSocket:
+              port: 50051
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 50051
+            initialDelaySeconds: 15
+            periodSeconds: 20
+
+  # 🚀 ここが Rollout 最大の強み！デプロイ戦略（カナリアリリース）の定義
+  strategy:
+    canary:
+      steps:
+        - setWeight: 20       # 最初のステップ: 新バージョンのトラフィックを20%（Pod 1つ分）だけにする
+        - pause: {}           # 次の指示があるまで「一時停止」（動作確認フェーズ）
+        - setWeight: 50       # 承認されたら、新バージョンを50%に引き上げる
+        - pause: {duration: 10s} # 10秒待機してから自動で次へ進む
+        # これ以降は自動的に100%に切り替わり、古いPodが削除されます
