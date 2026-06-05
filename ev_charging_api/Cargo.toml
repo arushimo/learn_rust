@@ -32,9 +32,5 @@ tonic = { version = "0.14", features = ["transport"] }
 prost = "0.14"
 tonic-prost = "0.14"
 
-[dev-dependencies]
-# 受入テスト用HTTPクライアント
-reqwest = { version = "0.12", features = ["json"] }
-
 [build-dependencies]
 tonic-prost-build = "0.14"

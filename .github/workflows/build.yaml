@@ -1,0 +1,27 @@
+name: CD Pipeline
+
+# mainブランチへのPush（PRマージ）時のみ発火
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-push:
+    name: Build and Push to Registry
+    runs-on: ubuntu-latest
+    
+    # 💡 実際はここに AWS ECR や GitHub Container Registry (ghcr.io) への
+    # ログインステップ（aws-actions/configure-aws-credentials 等）が入ります
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./ev_charging_api
+          push: true # 💡 本物のCDなのでレジストリへPushする
+          tags: ev_charging_api:latest # 💡 実際は git のコミットハッシュ等を利用します
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
