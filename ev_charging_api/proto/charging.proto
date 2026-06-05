@@ -1,0 +1,26 @@
+syntax = "proto3";
+package charging;
+
+// 💡 サービス（API）の定義
+service ChargingService {
+  rpc CreateSession (ChargeSessionRequest) returns (ChargeSessionResponse);
+  rpc GetSession (GetSessionRequest) returns (ChargeSessionResponse);
+}
+
+// 💡 リクエストとレスポンスのデータ構造
+message ChargeSessionRequest {
+  string vehicle_model = 1;
+  int32 charged_kwh = 2;
+  string start_time = 3; // RFC3339形式の文字列
+}
+
+message GetSessionRequest {
+  int32 id = 1;
+}
+
+message ChargeSessionResponse {
+  int32 id = 1;
+  string vehicle_model = 2;
+  int32 charged_kwh = 3;
+  string start_time = 4;
+}

@@ -19,14 +19,22 @@ chrono = { version = "0.4", features = ["serde"] }
 # ロギング & OpenTelemetry (Jaeger連携)
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-tracing-opentelemetry = "0.22"
-opentelemetry = { version = "0.21", features = ["trace"] }
-opentelemetry_sdk = { version = "0.21", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.14", features = ["tonic", "tokio"] }
+tracing-opentelemetry = "0.26"
+opentelemetry = { version = "0.25", features = ["trace"] }
+opentelemetry_sdk = { version = "0.25", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.25", features = ["tonic", "tokio"] }
 
-# 環境変数読み込み
-dotenvy = "0.15.7"
+# 環境変数
+dotenvy = "0.15"
+
+# 💡 gRPC 関連（Tonic 0.14 の新体制）
+tonic = { version = "0.14", features = ["transport"] }
+prost = "0.14"
+tonic-prost = "0.14"
 
 [dev-dependencies]
 # 受入テスト用HTTPクライアント
 reqwest = { version = "0.12", features = ["json"] }
+
+[build-dependencies]
+tonic-prost-build = "0.14"
