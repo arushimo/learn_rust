@@ -20,7 +20,7 @@ jobs:
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: ./ev_charging_api
           push: true # 💡 本物のCDなのでレジストリへPushする
           tags: ev_charging_api:latest # 💡 実際は git のコミットハッシュ等を利用します
           cache-from: type=gha
