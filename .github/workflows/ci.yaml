@@ -30,7 +30,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       jaeger:
-        image: jaegertracing/all-in-one:latest
+        image: cr.jaegertracing.io/jaegertracing/jaeger:latest
         ports:
           - 4317:4317 # OTLP gRPC endpoint
 

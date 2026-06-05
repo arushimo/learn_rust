@@ -1,5 +1,6 @@
 // 💡 OpenTelemetry 関連の正しいインポート（WithExportConfigを復活させます）
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
+use prost_types::Timestamp;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use tonic::{transport::Server, Request, Response, Status};
 use tracing::{info, instrument};
@@ -11,15 +12,15 @@ use opentelemetry_sdk::trace::{Config, Tracer};
 // ==========================================
 // 1. 自動生成された gRPC コードの取り込み
 // ==========================================
-// protoのパッケージ名「charging」に対応するモジュールを定義
-pub mod charging {
+// protoのパッケージ名「charging.v1」に対応するモジュールを定義
+pub mod charging_v1 {
     // build.rs が生成したコードをこの場所（インライン）に展開するマクロ
-    tonic::include_proto!("charging");
+    tonic::include_proto!("charging.v1");
 }
 
 // 扱いやすいように自動生成されたサービスや構造体をインポート
-use charging::charging_service_server::{ChargingService, ChargingServiceServer};
-use charging::{ChargeSessionRequest, ChargeSessionResponse, GetSessionRequest};
+use charging_v1::charging_service_server::{ChargingService, ChargingServiceServer};
+use charging_v1::{ChargeSession, CreateChargeSessionRequest, GetChargeSessionRequest};
 
 // ==========================================
 // 2. ドメインモデリング (第16回：Newtypeパターン)
@@ -49,32 +50,37 @@ pub struct MyChargingService {
 // Tonicが要求するトレイト（インターフェース）を構造体に実装する
 #[tonic::async_trait]
 impl ChargingService for MyChargingService {
-    // 💡 ① セッションの作成 (POSTの代わり)
+    // 💡 ① セッションの作成 (AIP-133 Create method)
     #[instrument(skip(self))] // 引数のself(DBプール)を除外してJaegerに計装
-    async fn create_session(
+    async fn create_charge_session(
         &self,
-        request: Request<ChargeSessionRequest>,
-    ) -> Result<Response<ChargeSessionResponse>, Status> {
-        info!("gRPC: CreateSession リクエストを受信しました");
+        request: Request<CreateChargeSessionRequest>,
+    ) -> Result<Response<ChargeSession>, Status> {
+        info!("gRPC: CreateChargeSession リクエストを受信しました");
 
         // request.into_inner() で、gRPCのガワを剥いて中身の構造体を取り出す
         let req = request.into_inner();
+        let session = req
+            .charge_session
+            .ok_or_else(|| Status::invalid_argument("charge_session が指定されていません"))?;
 
         // Newtypeバリデーション (エラー時は gRPC の INVALID_ARGUMENT ステータスを返す)
-        let kwh = Kwh::try_from(req.charged_kwh).map_err(Status::invalid_argument)?;
+        let kwh = Kwh::try_from(session.charged_kwh).map_err(Status::invalid_argument)?;
 
-        // 文字列で送られてきた時間を Chrono でパース (第18回：タイムゾーンの明示)
-        let parsed_time = DateTime::parse_from_rfc3339(&req.start_time)
-            .map_err(|_| {
-                Status::invalid_argument("start_time のフォーマットが不正です（RFC3339を期待）")
-            })?
-            .with_timezone(&Utc); // UTCに型をカチッと固定
+        // Timestamp -> DateTime<Utc> の変換
+        let start_time_ts = session
+            .start_time
+            .ok_or_else(|| Status::invalid_argument("start_time が指定されていません"))?;
+        let parsed_time = Utc
+            .timestamp_opt(start_time_ts.seconds, start_time_ts.nanos as u32)
+            .single()
+            .ok_or_else(|| Status::invalid_argument("無効な start_time です"))?;
 
         // SQLxによるDB挿入
         let record = sqlx::query_as::<_, (i32,)> (
             "INSERT INTO charging_sessions (vehicle_model, charged_kwh, start_time) VALUES ($1, $2, $3) RETURNING id"
         )
-        .bind(&req.vehicle_model)
+        .bind(&session.vehicle_model)
         .bind(kwh.0)
         .bind(parsed_time)
         .fetch_one(&self.db)
@@ -84,47 +90,67 @@ impl ChargingService for MyChargingService {
             Status::internal("Internal Database Error")
         })?;
 
+        let id = record.0;
+
         // レスポンスの組み立て
-        let reply = ChargeSessionResponse {
-            id: record.0,
-            vehicle_model: req.vehicle_model,
+        let reply = ChargeSession {
+            name: format!("chargeSessions/{}", id),
+            vehicle_model: session.vehicle_model,
             charged_kwh: kwh.0,
-            start_time: parsed_time.to_rfc3339(),
+            start_time: Some(start_time_ts),
         };
 
         Ok(Response::new(reply))
     }
 
-    // 💡 ② セッションの取得 (GETの代わり)
+    // 💡 ② セッションの取得 (AIP-131 Get method)
     #[instrument(skip(self))]
-    async fn get_session(
+    async fn get_charge_session(
         &self,
-        request: Request<GetSessionRequest>,
-    ) -> Result<Response<ChargeSessionResponse>, Status> {
+        request: Request<GetChargeSessionRequest>,
+    ) -> Result<Response<ChargeSession>, Status> {
         let req = request.into_inner();
-        info!("gRPC: GetSession リクエストを受信しました (ID: {})", req.id);
+        info!(
+            "gRPC: GetChargeSession リクエストを受信しました (Name: {})",
+            req.name
+        );
+
+        // Name のパース ("chargeSessions/{id}")
+        let id_str = req.name.strip_prefix("chargeSessions/").ok_or_else(|| {
+            Status::invalid_argument(
+                "無効なリソース名です。'chargeSessions/{id}' の形式で指定してください。",
+            )
+        })?;
+        let id: i32 = id_str.parse().map_err(|_| {
+            Status::invalid_argument("リソース名のID部分は整数である必要があります。")
+        })?;
 
         let record = sqlx::query_as::<_, (i32, String, i32, DateTime<Utc>)>(
             "SELECT id, vehicle_model, charged_kwh, start_time FROM charging_sessions WHERE id = $1"
         )
-        .bind(req.id)
+        .bind(id)
         .fetch_optional(&self.db)
         .await
         .map_err(|_| Status::internal("Internal Database Error"))?;
 
         match record {
             Some((id, model, kwh, time)) => {
-                let reply = ChargeSessionResponse {
-                    id,
+                let ts = Timestamp {
+                    seconds: time.timestamp(),
+                    nanos: time.timestamp_subsec_nanos() as i32,
+                };
+
+                let reply = ChargeSession {
+                    name: format!("chargeSessions/{}", id),
                     vehicle_model: model,
                     charged_kwh: kwh,
-                    start_time: time.to_rfc3339(),
+                    start_time: Some(ts),
                 };
                 Ok(Response::new(reply))
             }
             None => Err(Status::not_found(format!(
-                "ID: {} のセッションは見つかりません",
-                req.id
+                "リソース {} は見つかりません",
+                req.name
             ))),
         }
     }
@@ -171,8 +197,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // DB接続
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://user:pass@localhost:5432/ev_db".to_string());
-    // 💡 本番環境に特化させる場合の、最も厳格な書き方
-    // .expect("環境変数 DATABASE_URL が設定されていません。起動を中止します。");
+
     let db_pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)
@@ -183,7 +208,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let service = MyChargingService { db: db_pool };
 
     // gRPC サーバーの起動設定
-    let addr = "0.0.0.0:50051".parse()?; // gRPCの標準的なポートに変更
+    let addr = "0.0.0.0:50051".parse()?;
     info!("gRPC サーバーをポート 50051 で起動します🚀");
 
     Server::builder()
