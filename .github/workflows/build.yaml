@@ -21,7 +21,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ./ev_charging_api
-          push: true # 💡 本物のCDなのでレジストリへPushする
+          push: false # 今回は実際のレジストリへのプッシュは行わない
           tags: ev_charging_api:latest # 💡 実際は git のコミットハッシュ等を利用します
           cache-from: type=gha
           cache-to: type=gha,mode=max

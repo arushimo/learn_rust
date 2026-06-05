@@ -6,8 +6,8 @@ services:
     ports:
       - "50051:50051"
     environment:
-      - DATABASE_URL=postgres://user:pass@db:5432/ev_db
-      - RUST_LOG=info
+      - DATABASE_URL=postgres://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-pass}@db:5432/${POSTGRES_DB:-ev_db}
+      - RUST_LOG=${RUST_LOG:-info}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317 # JaegerのgRPCポート
     depends_on:
       - db
@@ -18,9 +18,9 @@ services:
     ports:
       - "5432:5432"
     environment:
-      - POSTGRES_USER=user
-      - POSTGRES_PASSWORD=pass
-      - POSTGRES_DB=ev_db
+      - POSTGRES_USER=${POSTGRES_USER:-user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-pass}
+      - POSTGRES_DB=${POSTGRES_DB:-ev_db}
     volumes:
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
 
