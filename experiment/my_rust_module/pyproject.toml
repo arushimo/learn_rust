@@ -1,0 +1,26 @@
+[project]
+name = "my-rust-module"
+version = "0.1.0"
+description = "Add your description here"
+authors = [
+    { name = "Arushimo", email = "email" }
+]
+dependencies = []
+readme = "README.md"
+requires-python = ">= 3.8"
+
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+# ここでPythonモジュール名（importする際の名前、アンダースコア）を指定
+module-name = "my_rust_module"
+features = ["pyo3/extension-module"]
+
+[tool.rye]
+managed = true
+dev-dependencies = [
+    "maturin>=1.13.3",
+    "pytest>=9.0.3",
+]
