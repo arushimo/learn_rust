@@ -8,19 +8,23 @@ const STAGE_WIDTH: f32 = 480.0;
 const STAGE_HEIGHT: f32 = 640.0;
 const WALL_THICKNESS: f32 = 24.0;
 const DROP_Y: f32 = 36.0;
-const MAX_LEVEL: u8 = 5;
+const MAX_LEVEL: u8 = 9;
 const FRUIT_DENSITY: f32 = 0.9;
 const FRUIT_RESTITUTION: f32 = 0.35;
 const FRUIT_FRICTION: f32 = 0.7;
 
 fn fruit_radius(level: u8) -> f32 {
     match level.min(MAX_LEVEL) {
-        0 => 18.0,
-        1 => 24.0,
-        2 => 31.0,
-        3 => 40.0,
-        4 => 52.0,
-        _ => 68.0,
+        0 => 14.0,
+        1 => 18.0,
+        2 => 23.0,
+        3 => 29.0,
+        4 => 36.0,
+        5 => 44.0,
+        6 => 53.0,
+        7 => 63.0,
+        8 => 74.0,
+        _ => 86.0,
     }
 }
 
@@ -61,6 +65,7 @@ pub struct GameState {
     collision_receiver: mpsc::Receiver<CollisionEvent>,
     contact_force_receiver: mpsc::Receiver<ContactForceEvent>,
     event_handler: ChannelEventCollector,
+    rng_state: u32,
 }
 
 #[wasm_bindgen]
@@ -87,6 +92,7 @@ impl GameState {
             collision_receiver,
             contact_force_receiver,
             event_handler: ChannelEventCollector::new(collision_sender, contact_force_sender),
+            rng_state: 0x6d2b_79f5,
         };
 
         state.add_walls();
@@ -95,6 +101,11 @@ impl GameState {
 
     pub fn add_fruit(&mut self, x: f32, y: f32, level: u8) {
         let level = level.min(MAX_LEVEL);
+        self.spawn_fruit(x, y, level);
+    }
+
+    pub fn add_random_fruit(&mut self, x: f32, y: f32) {
+        let level = self.random_drop_level();
         self.spawn_fruit(x, y, level);
     }
 
@@ -194,6 +205,24 @@ impl GameState {
             .build();
         self.colliders
             .insert_with_parent(collider, body_handle, &mut self.bodies);
+    }
+
+    fn random_drop_level(&mut self) -> u8 {
+        // Human-facing sizes 1/2/3 map to internal levels 0/1/2.
+        // Distribution: size 1 = 80%, size 2 = 15%, size 3 = 5%.
+        match self.next_random_percent() {
+            0..=79 => 0,
+            80..=94 => 1,
+            _ => 2,
+        }
+    }
+
+    fn next_random_percent(&mut self) -> u32 {
+        self.rng_state = self
+            .rng_state
+            .wrapping_mul(1_664_525)
+            .wrapping_add(1_013_904_223);
+        self.rng_state % 100
     }
 
     fn handle_merge_events(&mut self) {
