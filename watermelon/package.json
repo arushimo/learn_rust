@@ -1,0 +1,27 @@
+{
+  "name": "watermelon",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "scripts": {
+    "build:wasm": "wasm-pack build --target web --out-dir pkg",
+    "dev": "npm run build:wasm && vite",
+    "build": "npm run build:wasm && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "ios:init": "tauri ios init",
+    "ios:dev": "tauri ios dev --host",
+    "ios:open": "tauri ios dev --open --host",
+    "ios:build": "tauri ios build"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.2",
+    "vite": "^8.0.16"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.0"
+  }
+}

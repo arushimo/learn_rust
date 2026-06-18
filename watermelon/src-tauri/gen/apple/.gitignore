@@ -1,0 +1,7 @@
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.moved-aside
+build/
+Externals/
+DerivedData/

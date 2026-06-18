@@ -10,6 +10,10 @@ const colors = [
   "#90be6d",
   "#43aa8b",
   "#577590",
+  "#9b5de5",
+  "#00bbf9",
+  "#00f5d4",
+  "#2d6a4f",
 ];
 
 let game;
@@ -29,8 +33,8 @@ function addFruitFromEvent(event) {
   event.preventDefault();
   const point = canvasPointFromEvent(event);
 
-  // プロトタイプでは常にレベル0を、画面上部から落とす。
-  game.add_fruit(point.x, 36, 0);
+  // どのサイズを落とすかは WASM 側の重み付き抽選に任せる。
+  game.add_random_fruit(point.x, 36);
 }
 
 function drawWalls() {
